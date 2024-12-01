@@ -1,5 +1,8 @@
 # Blender-Meshwalker
+
 Transfers world position of vertices from target to source, even with different number of vertices. Works in object space or world space.
+
+Useful for aligning parts of character meshes, matching deformations, or synchronizing mesh segments.
 
 
 ## Demo video
