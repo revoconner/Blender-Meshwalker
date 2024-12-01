@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'Mesh PickWalker',
-    'description': 'Transfers world position of vertices from target to source, even with unequal number of vertices',
+    'description': 'Transfers world/object position of vertices from target to source, even with unequal number of vertices',
     'author': 'Rév',
     'version': (1, 0),
     'blender': (3, 0, 0),
@@ -119,7 +119,26 @@ class MESH_OT_store_mesh_b_vtx2(Operator):
 class MESH_OT_compute_mapping(Operator):
     bl_idname = "mesh.compute_mapping"
     bl_label = "Compute Vertex Mapping"
-    bl_description = "Move all target vertices to source vertices location in world space"
+    bl_description = "Move all target vertices to source vertices location in selected space"
+    
+    def move_vertices_world_space(self, obj_a, obj_b, bm_a, bm_b, reverse_map):
+        for v_b in bm_b.verts:
+            if v_b.index in reverse_map:
+                v_a = bm_a.verts[reverse_map[v_b.index]]
+                # Convert vertex position from mesh A's local space to world space
+                world_pos_a = obj_a.matrix_world @ v_a.co
+                # Convert world position to mesh B's local space
+                local_pos_b = obj_b.matrix_world.inverted() @ world_pos_a
+                # Update mesh B vertex position
+                v_b.co = local_pos_b
+
+    def move_vertices_object_space(self, obj_a, obj_b, bm_a, bm_b, reverse_map):
+        for v_b in bm_b.verts:
+            if v_b.index in reverse_map:
+                v_a = bm_a.verts[reverse_map[v_b.index]]
+                # Simply copy local coordinates
+                v_b.co = v_a.co
+
     
     def get_next_vertex(self, face, vertex_pair):
         """Gets next vertex in face from current vertex pair"""
@@ -263,6 +282,11 @@ class MESH_OT_compute_mapping(Operator):
                 # Update mesh B vertex position
                 v_b.co = local_pos_b
         
+        if context.scene.mesh_walker_space == 'WORLD':
+            self.move_vertices_world_space(obj_a, obj_b, bm_a, bm_b, reverse_map)
+        else:
+            self.move_vertices_object_space(obj_a, obj_b, bm_a, bm_b, reverse_map)
+
         # Update mesh B
         bm_b.to_mesh(obj_b.data)
         obj_b.data.update()
@@ -270,7 +294,7 @@ class MESH_OT_compute_mapping(Operator):
         bm_a.free()
         bm_b.free()
         
-        self.report({'INFO'}, "Vertex positions updated")
+        self.report({'INFO'}, f"Vertex positions updated in {context.scene.mesh_walker_space.lower()} space")
         return {'FINISHED'}
 
 
@@ -303,14 +327,12 @@ class VIEW3D_PT_mesh_walker(Panel):
         layout.label(text="Created by Rév O'Conner")
         box = layout.box()
         col = box.column(align=True) 
-        col.label(text="Moves a subset mesh to larger mesh")
-        col.label(text="with matching topology")
         col.label(text="1. Select equivalent faces")
         col.label(text="2. Select two neighboring vertices")
         col.label(text="   of the same face")
 
         box = layout.box()
-        box.label(text="Mesh A")
+        box.label(text="Source: Mesh that's copied from")
         col = box.column(align=True)
         row = col.row()
         row.operator("mesh.store_mesh_a_face", text="Face")
@@ -325,7 +347,7 @@ class VIEW3D_PT_mesh_walker(Panel):
         row.label(text="Mesh: " + (context.scene.mesh_a_name if context.scene.mesh_a_name else "None"))        
 
         box = layout.box()
-        box.label(text="Mesh B")
+        box.label(text="Target: Mesh that changes")
         col = box.column(align=True)
         row = col.row()
         row.operator("mesh.store_mesh_b_face", text="Face")
@@ -337,7 +359,9 @@ class VIEW3D_PT_mesh_walker(Panel):
         row.operator("mesh.store_mesh_b_vtx2", text="Vertex 2")
         row.label(text=context.scene.mesh_b_vtx2)
         row = col.row()
-        row.label(text="Mesh: " + (context.scene.mesh_b_name if context.scene.mesh_b_name else "None"))        
+        row.label(text="Mesh: " + (context.scene.mesh_b_name if context.scene.mesh_b_name else "None"))
+        row = layout.row()
+        row.prop(context.scene, "mesh_walker_space", expand=True)        
 
         layout.operator("mesh.compute_mapping", text="Move Vertices")
         layout.operator("mesh.clear_values", text="Clear All")
@@ -360,6 +384,13 @@ def register():
     bpy.utils.register_class(MESH_OT_store_mesh_b_vtx2)
     bpy.utils.register_class(MESH_OT_compute_mapping)
     bpy.utils.register_class(VIEW3D_PT_mesh_walker)
+    bpy.types.Scene.mesh_walker_space = bpy.props.EnumProperty(
+        items=[
+            ('WORLD', "World Space", "Move vertices in world space"),
+            ('OBJECT', "Object Space", "Move vertices in object space")
+        ],
+        default='WORLD'
+    )
 
 def unregister():
     del bpy.types.Scene.mesh_a_face
@@ -370,6 +401,7 @@ def unregister():
     del bpy.types.Scene.mesh_b_vtx2
     del bpy.types.Scene.mesh_a_name
     del bpy.types.Scene.mesh_b_name
+    del bpy.types.Scene.mesh_walker_space
     bpy.utils.unregister_class(MESH_OT_clear_values)
     bpy.utils.unregister_class(MESH_OT_store_mesh_a_face)
     bpy.utils.unregister_class(MESH_OT_store_mesh_a_vtx1)
